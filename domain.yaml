@@ -1,0 +1,111 @@
+heat_template_version: 2018-03-02
+
+description: Template that creates a private network
+
+parameters:
+  public_network:
+    type: string
+    label: Public network name or ID
+    description: Public network with floating IP addresses.
+    default: public
+  cidr:
+    type: string
+    label: Network CIDR
+    description: The CIDR of the private network.
+    default: '192.168.100.0/24'
+
+resources:
+  private_network:
+    type: OS::Neutron::Net
+  
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_network }
+      cidr: { get_param: cidr }
+      dns_nameservers:
+       - 192.168.100.50
+       - 8.8.8.8
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_network }
+
+  router-interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet: { get_resource: private_subnet }
+
+  port_one:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.50}]
+
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      metadata: {admin_pass: abc123!@#}
+      flavor: cy.large
+      image: Windows 7
+      name: Workstation1
+      networks: [network: {get_resource: private_network}]
+      user_data: |
+        #ps1
+        $securepwd = ConvertTo-SecureString "toor" -AsPlaintext -Force
+        Get-LocalUser -Name "windows7" | Set-LocalUser -Password $securepwd
+        Start-Sleep -s 1200
+        $cred = New-Object System.Management.Automation.PsCredential("sd6\Administrator", (ConvertTo-SecureString "abc123!@#" -AsPlaintext -Force))
+        Add-Computer -DomainName "sd6" -Credential $cred
+        exit 1001
+  my_instance2:
+    type: OS::Nova::Server
+    properties:
+      metadata: {admin_pass: abc123!@#}
+      flavor: cy.large
+      image: Windows 2016
+      name: Server2
+      networks: [port: {get_resource: port_one}]
+      user_data: |
+        #ps1
+        $securepwd = ConvertTo-SecureString "abc123!@#" -AsPlaintext -Force
+        Get-LocalUser -Name "Administrator" | Set-LocalUser -Password $securepwd
+        New-Item -ItemType directory -Path c:\temp
+        Set-Content -Path c:\temp\run.ps1 -Value "$cred = ConvertTo-SecureString "abc123!@#" -AsPlaintext -Force" -Force 
+        Add-Content -Path c:\temp\run.ps1 -Value "New-ADUser -Name "Leo" -GivenName "Leo" -SamAccountName leolson -UserPrincipalName leolson@sd6.local -ChangePasswordAtLogon $false -AccountPassword $cred"
+        $RunOnceKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
+        set-itemproperty $RunOnceKey "NextRun" ('C:\Windows\System32\WindowsPowershell\v1.0\Powershell.exe -executionPolicy Unrestricted -File ' + "C:\temp\run.ps1")
+        Install-WindowsFeature -name AD-Domain-Services -IncludeManagementTools 2>&1 >> C:\temp\test.txt
+        echo "Starting Import-Module" >> C:\temp\test.txt
+        Import-Module ADDSDeployment 2>&1 >> C:\temp\test.txt
+        echo "Module Loaded; starting Install-ADDSForest">> C:\temp\test.txt
+        Install-ADDSForest -CreateDnsDelegation:$false -DatabasePath "C:\Windows\NTDS" -DomainMode "WinThreshold" -DomainName "sd6.local" -InstallDns:$true -SafeModeAdministratorPassword (ConvertTo-SecureString -String "abc123!@#" -Force -AsPlainText) -LogPath "C:\Windows\NTDS" -NoRebootOnCompletion:$false -SysvolPath "C:\Windows\SYSVOL" -Force:$true 2>&1 >> C:\temp\test.txt
+        echo "Install-ADDSForest complete">> C:\temp\test.txt
+        Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Public 
+      user_data_format: RAW
+  my_instance3:
+    type: OS::Nova::Server
+    properties:
+      image: Ubuntu 16.04
+      flavor: cy.medium
+      name: Linux1
+      networks: [network: {get_resource: private_network}]
+      user_data: |
+        #!/bin/bash
+        echo "ubuntu:abc123!@#" | chpasswd
+        sudo apt-get update
+        sudo apt-get nmap install
+        curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall && chmod 755 msfinstall && ./msfinstall
+      user_data_format: RAW
+
+outputs:
+  instance_name:
+    description: Name of the instance
+    value: { get_attr: [my_instance2, name] }
+  instance_ip:
+    description: IP address of the instance
+    value: { get_attr: [my_instance2, first_address] }
