@@ -1,1 +1,108 @@
+heat_template_version: 2018-03-02
 
+description: Template that creates a private network
+
+parameters:
+  public_network:
+    type: string
+    label: Public network name or ID
+    description: Public network with floating IP addresses.
+    default: public
+  cidr:
+    type: string
+    label: Network CIDR
+    description: The CIDR of the private network.
+    default: '192.168.100.0/24'
+  dns:
+    type: comma_delimited_list
+    label: DNS nameservers
+    description: Comma separated list of DNS nameservers for the private network.
+    default: '8.8.8.8'
+  password: {description: admin password, hidden: false, label: password, type: string}
+
+resources:
+  private_network:
+    type: OS::Neutron::Net
+  
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_network }
+      cidr: { get_param: cidr }
+      dns_nameservers: { get_param: dns } 
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_network }
+
+  router-interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet: { get_resource: private_subnet }
+
+  port_one:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.15}]
+
+  port_two:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.25}]
+
+  cinder_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: 100
+      image: Windows 10
+
+  my_instance:
+    type: OS::Nova::Server
+    properties:
+      metadata: {admin_pass: abc123!@#}
+      flavor: cy.large
+      image: Windows 7
+      name: Server1
+      networks: [port: {get_resource: port_one}]
+      user_data:
+        str_replace:
+          template: |
+            rem cmd
+            net user windows7 $password
+            
+          params:
+            $password: {get_param: password}
+
+  my_instance2:
+    type: OS::Nova::Server
+    properties:
+      metadata: {admin_pass: abc123!@#}
+      flavor: cy.large
+      image: Windows 10
+      name: Server2
+      block_device_mapping: [{"volume_size": 100, "volume_id": {get_resource: cinder_volume }, "delete_on_termination": True, "device_name": "/dev/vda" }]
+      networks: [port: {get_resource: port_two}]
+      user_data:
+        str_replace:
+          template: |
+            rem cmd
+            net user windows10 $password
+            
+          params:
+            $password: {get_param: password}
+
+
+outputs:
+  instance_name:
+    description: Name of the instance
+    value: { get_attr: [my_instance, name] }
+  instance_ip:
+    description: IP address of the instance
+    value: { get_attr: [my_instance, first_address] }
