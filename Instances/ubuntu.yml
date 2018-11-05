@@ -43,16 +43,31 @@ resources:
       subnet: { get_resource: private_subnet }
 
   
-  my_instance1:
+  my_instance_ubuntu:
     type: OS::Nova::Server
     properties:
       image: Ubuntu 16.04
       flavor: cy.medium
-      name: TunnelBox
+      name: baseLinux
       networks: [network: {get_resource: private_network}]
       user_data: |
         #!/bin/bash
         echo "ubuntu:abc123!@#" | chpasswd
         sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' </etc/ssh/sshd_config >~/sshd_config && sudo mv ~/sshd_config /etc/ssh/sshd_config
         sudo service ssh restart
+      user_data_format: RAW
+      
+  my_instance3:
+    type: OS::Nova::Server
+    properties:
+      image: Ubuntu 16.04
+      flavor: cy.medium
+      name: metasploitLinux
+      networks: [network: {get_resource: private_network}]
+      user_data: |
+        #!/bin/bash
+        echo "ubuntu:abc123!@#" | chpasswd
+        sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' </etc/ssh/sshd_config >~/sshd_config && sudo mv ~/sshd_config /etc/ssh/sshd_config
+        sudo service ssh restart
+        curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall && chmod 755 msfinstall && ./msfinstall
       user_data_format: RAW
