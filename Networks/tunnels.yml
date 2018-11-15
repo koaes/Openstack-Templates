@@ -1,0 +1,177 @@
+heat_template_version: 2018-03-02
+
+description: Template that creates a private network
+
+parameters:
+  public_network:
+    type: string
+    label: Public network name or ID
+    description: Public network with floating IP addresses.
+    default: public
+  cidr:
+    type: string
+    label: Network CIDR
+    description: The CIDR of the private network.
+    default: '192.168.100.0/24'
+  dns:
+    type: comma_delimited_list
+    label: DNS nameservers
+    description: Comma separated list of DNS nameservers for the private network.
+    default: '8.8.8.8'
+
+resources:
+  private_network:
+    type: OS::Neutron::Net
+  
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_network }
+      cidr: { get_param: cidr }
+      dns_nameservers: { get_param: dns } 
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_network }
+
+  router-interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet: { get_resource: private_subnet }
+
+  port_one:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.10}]
+
+  port_two:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.15}]
+
+  port_three:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: 192.168.100.25}]
+
+  my_instance1:
+    type: OS::Nova::Server
+    properties:
+      image: Ubuntu 16.04
+      flavor: cy.medium
+      name: tunnelLab_linux
+      networks: [port: {get_resource: port_one}]
+      user_data: |
+        #!/bin/bash
+        echo "ubuntu:abc123!@#" | chpasswd
+        sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' </etc/ssh/sshd_config >~/sshd_config && sudo mv ~/sshd_config /etc/ssh/sshd_config
+        sudo service ssh restart
+      user_data_format: RAW
+  my_instance2:
+    type: OS::Nova::Server
+    properties:
+      metadata: {admin_pass: abc123!@#}
+      flavor: cy.large
+      image: Windows 10
+      name: tunnelLab_victim
+      networks: [port: {get_resource: port_two}]
+      user_data: |
+        #ps1
+        Function password_setup {
+          $securepwd = ConvertTo-SecureString "toor" -AsPlaintext -Force
+          Get-LocalUser -Name "windows10" | Set-LocalUser -Password $securepwd
+        }
+        Function network_setup{
+          Set-NetConnectionProfile -InterfaceAlias "Ethernet" -NetworkCategory Public
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+        }
+        Function filesystem_setup {
+         New-Item -ItemType directory -Path c:\Users\windows10\Desktop\tools
+         New-Item -ItemType directory -Path c:\Users\windows10\Desktop\tools\installers
+        }
+        Function registry_setup {
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value "1" -PropertyType DWORD -Force
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $webClient = New-Object System.Net.WebClient
+          $webClient.DownloadFile("https://vignette.wikia.nocookie.net/steamtradingcards/images/c/c7/Hacker_Evolution_Untold_Background_Operations_Map.jpg/revision/latest?cb=20140729193444", "c:\Users\windows10\Desktop\tools\bg.jpg")
+          Set-ItemProperty -path 'HKCU:\Control Panel\Desktop\' -Name Wallpaper -Value "c:\Users\windows10\Desktop\tools\bg.jpg"
+        }
+        Function downloadTools{
+          $destPath = "c:\Users\windows10\Desktop\tools\"         
+          $programsToDownload = @(("SysinternalsSuite.zip", "https://download.sysinternals.com/files/"),
+            ("mtputty.zip", "http://ttyplus.com/download/"))
+          for($i=0; $i -lt $programsToDownload.Length; $i++){
+            $filename = $programsToDownload[$i][0]
+            $url = $programsToDownload[$i][1]
+            $urlWithFilename = $url + $filename   
+            $destPathWithFilename = $destPath + $filename
+            echo $destPathWithFilename >> c:\Users\windows10\Desktop\tools\test.txt
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($urlWithFilename, $destPathWithFilename)    
+           }
+        }
+        Function downloadPrograms {
+          $programsToDownload = @(("npp.7.5.9.Installer.exe", "https://notepad-plus-plus.org/repository/7.x/7.5.9/", " /Q /S"),
+            ("nmap-7.70-setup.exe", "https://nmap.org/dist/", " /S"),
+            ("Wireshark-win64-2.6.4.exe", "https://1.na.dl.wireshark.org/win64/", " /S"),
+            ("putty-0.70-installer.msi", "https://the.earth.li/~sgtatham/putty/latest/w32/", " /qn"),
+            ("", "https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US", " -ms"),
+            ("processhacker-2.39-setup.exe", "https://github.com/processhacker2/processhacker2/releases/download/v2.39/", " /VERYSILENT"))
+          $destPath = "c:\Users\windows10\Desktop\tools\installers\"
+          echo "Starting Downloads" >> c:\Users\windows10\Desktop\tools\test.txt    
+          for($i=0; $i -lt $programsToDownload.Length; $i++){
+            $filename = $programsToDownload[$i][0]
+            $url = $programsToDownload[$i][1]
+            $arguments = $programsToDownload[$i][2]
+            $urlWithFilename = $url + $filename
+            if($programsToDownload[$i][0] -eq ""){
+              $destPathWithFilename = $destPath + "1.exe"
+              $filename = "random.exe"
+            }else{
+              $destPathWithFilename = $destPath + $filename
+            }
+            echo $destPathWithFilename >> c:\Users\windows10\Desktop\tools\test.txt
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($urlWithFilename, $destPathWithFilename) >> c:\Users\windows10\Desktop\tools\test.txt
+            installProgram $filename $destPathWithFilename $arguments
+          }
+        }
+        Function installProgram ($filename, $destPathWithFilename, $arguments){
+          if($filename.substring($filename.length - 3) -eq "msi"){
+            $destPathWithFilename = "msiexec /a " + $destPathWithFilename
+            Invoke-Expression -Command "$destPathWithFilename $arguments" 2>&1 >> c:\Users\windows10\Desktop\tools\test.txt
+          }else{
+            Invoke-Expression -Command "$destPathWithFilename $arguments" 2>&1 >> c:\Users\windows10\Desktop\tools\test.txt
+          } 
+        }
+        password_setup
+        network_setup
+        filesystem_setup
+        registry_setup
+        downloadPrograms
+        downloadTools
+        Invoke-Expression -Command 'c:\program files\mozilla firefox\firefox.exe'
+      user_data_format: RAW
+  my_instance3:
+    type: OS::Nova::Server
+    properties:
+      image: Ubuntu 16.04
+      flavor: cy.medium
+      name: tunnelLab_metasploit
+      networks: [port: {get_resource: port_three}]
+      user_data: |
+        #!/bin/bash
+        echo "ubuntu:abc123!@#" | chpasswd
+        sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' </etc/ssh/sshd_config >~/sshd_config && sudo mv ~/sshd_config /etc/ssh/sshd_config
+        sudo service ssh restart
+        curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall && chmod 755 msfinstall && ./msfinstall
+      user_data_format: RAW
