@@ -1,2 +1,2 @@
-# Windows-Domain
-yaml template
+# Openstack Templates
+A collection of Openstack Templates
