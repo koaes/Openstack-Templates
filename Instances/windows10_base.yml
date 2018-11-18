@@ -18,6 +18,11 @@ parameters:
     label: DNS nameservers
     description: Comma separated list of DNS nameservers for the private network.
     default: '8.8.8.8'
+  target_ip:
+    type: string
+    label: Target IP Address
+    description: IP Address of Target Computer
+    default: '192.168.100.15'
 
 resources:
   private_network:
@@ -42,46 +47,31 @@ resources:
       router_id: { get_resource: router }
       subnet: { get_resource: private_subnet }
 
-  windows_base:
+  window10target:
     type: OS::Nova::Server
     properties:
       metadata: {admin_pass: abc123!@#}
       flavor: cy.large
       image: Windows 10
-      name: Server2
-      networks: [network: {get_resource: private_network}]
+      name: windows10Target
+      block_device_mapping: [{"volume_size": 100, "volume_id": {get_resource: volume_windows10Target }, "delete_on_termination": True, "device_name": "/dev/vda" }]
+      networks: [port: {get_resource: port_windows10Target}]
       user_data: |
-        #ps1
+	      #ps1
         $securepwd = ConvertTo-SecureString "toor" -AsPlaintext -Force
         Get-LocalUser -Name "windows10" | Set-LocalUser -Password $securepwd
         New-Item -ItemType directory -Path c:\temp
       user_data_format: RAW
-      
-  my_instance2:
-    type: OS::Nova::Server
+
+  port_windows10Target:
+    type: OS::Neutron::Port
     properties:
-      metadata: {admin_pass: abc123!@#}
-      flavor: cy.large
+      name: port_windows10Target
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address: { get_param: target_ip }}]
+
+  volume_windows10Target:
+    type: OS::Cinder::Volume
+    properties:
+      size: 100
       image: Windows 10
-      name: Server2
-      networks: [network: {get_resource: private_network}]
-      user_data: |
-        #ps1
-        $securepwd = ConvertTo-SecureString "toor" -AsPlaintext -Force
-        Get-LocalUser -Name "windows10" | Set-LocalUser -Password $securepwd
-        New-Item -ItemType directory -Path c:\temp
-        $programsToDownload = @(("npp.7.5.9.Installer.exe", "https://notepad-plus-plus.org/repository/7.x/7.5.9/", " /Q /S"),
-            ("nmap-7.70-setup.exe", "https://nmap.org/dist/", " /S"),
-            ("Wireshark-win64-2.6.4.exe", "https://1.na.dl.wireshark.org/win64/", " /S") )
-        $destPath = "c:\temp\"    
-        for($i=0; $i -lt $programsToDownload.Length; $i++){
-          $filename = $programsToDownload[$i][0]
-          $url = $programsToDownload[$i][1]
-          $arguments = $programsToDownload[$i][2]
-          $urlWithFilename = $url + $filename
-          $destPathWithFilename = $destPath + $filename
-          $webClient = New-Object System.Net.WebClient
-          $webClient.DownloadFile($urlWithFilename, $destPathWithFilename)
-          Invoke-Expression -Command "$destPathWithFilename $arguments"
-        }
-        write-host "Completed!!"
