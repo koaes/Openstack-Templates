@@ -1,0 +1,162 @@
+heat_template_version: 2018-03-02
+
+description: Template that creates a private network
+
+parameters:
+  public_network:
+    type: string
+    label: Public network name or ID
+    description: Public network with floating IP addresses.
+    default: public
+  cidr:
+    type: string
+    label: Network CIDR
+    description: The CIDR of the private network.
+    default: '192.168.100.0/24'
+  dns:
+    type: comma_delimited_list
+    label: DNS nameservers
+    description: Comma separated list of DNS nameservers for the private network.
+    default: '8.8.8.8'
+  snort_ip1:
+    type: string
+    label: Target IP Address
+    description: IP Address of Target Computer
+    default: '192.168.100.15'
+  snort_ip2:
+    type: string
+    label: Target IP Address
+    description: IP Address of Target Computer
+    default: '192.168.100.16'
+
+resources:
+  private_network:
+    type: OS::Neutron::Net
+  
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_network }
+      cidr: { get_param: cidr }
+      dns_nameservers: { get_param: dns } 
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_network }
+
+  router-interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet: { get_resource: private_subnet }
+ 
+  port_snortOne:
+    type: OS::Neutron::Port
+    properties:
+      name: port1
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address:  { get_param: snort_ip1 }}]
+
+  port_snortTwo:
+    type: OS::Neutron::Port
+    properties:
+      name: port2
+      network_id: { get_resource: private_network }
+      fixed_ips: [{subnet: {get_resource: private_subnet}, ip_address:  { get_param: snort_ip2 }}]
+ 
+  volume_snort:
+    type: OS::Cinder::Volume
+    properties:
+      size: 100
+      image: Ubuntu 16.04
+
+  snort_instance:
+    type: OS::Nova::Server
+    properties:
+      image: Ubuntu 16.04
+      flavor: cy.medium
+      name: snort
+      block_device_mapping: [{"volume_size": 100, "volume_id": {get_resource: volume_snort }, "delete_on_termination": True, "device_name": "/dev/vda" }]
+      networks:
+        - port: {get_resource: port_snortOne}
+        - port: {get_resource: port_snortTwo}
+      user_data: |
+        #!/bin/bash
+        echo "ubuntu:abc123!@#" | chpasswd
+        sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' </etc/ssh/sshd_config >~/sshd_config && sudo mv ~/sshd_config /etc/ssh/sshd_config
+        sudo service ssh restart
+        mkdir /home/ubuntu/snort_src
+        cd /home/ubuntu/snort_src
+        sudo apt-get update -y
+        sudo apt-get install -y build-essential autotools-dev libdumbnet-dev libluajit-5.1-dev libpcap-dev libpcre3-dev zlib1g-dev pkg-config libhwloc-dev
+        sudo apt-get install -y cmake
+        sudo apt-get install -y liblzma-dev openssl libssl-dev cpputest libsqlite3-dev uuid-dev
+        sudo apt-get install -y libtool git autoconf
+        sudo apt-get install -y bison flex
+        sudo apt-get install -y libnetfilter-queue-dev
+        cd /home/ubuntu/snort_src
+        wget https://downloads.sourceforge.net/project/safeclib/libsafec-10052013.tar.gz
+        tar -xzvf libsafec-10052013.tar.gz
+        cd libsafec-10052013
+        ./configure
+        make
+        sudo make install
+        cd /home/ubuntu/snort_src
+        wget https://github.com/gperftools/gperftools/releases/download/gperftools-2.7/gperftools-2.7.tar.gz
+        tar xzvf gperftools-2.7.tar.gz
+        cd gperftools-2.7
+        ./configure
+        make
+        sudo make install
+        cd /home/ubuntu/snort_src
+        wget http://www.colm.net/files/ragel/ragel-6.10.tar.gz
+        tar -xzvf ragel-6.10.tar.gz
+        cd ragel-6.10
+        ./configure
+        make
+        sudo make install
+        cd /home/ubuntu/snort_src
+        wget https://dl.bintray.com/boostorg/release/1.67.0/source/boost_1_67_0.tar.gz
+        tar -xvzf boost_1_67_0.tar.gz
+        cd /home/ubuntu/snort_src
+        wget https://github.com/intel/hyperscan/archive/v4.7.0.tar.gz
+        tar -xvzf v4.7.0.tar.gz
+        mkdir /home/ubuntu/snort_src/hyperscan-4.7.0-build
+        cd hyperscan-4.7.0-build/
+        cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DBOOST_ROOT=/home/ubuntu/snort_src/boost_1_67_0/ ../hyperscan-4.7.0
+        make
+        sudo make install
+        cd /home/ubuntu/snort_src
+        wget https://github.com/google/flatbuffers/archive/v1.9.0.tar.gz -O flatbuffers-v1.9.0.tar.gz
+        tar -xzvf flatbuffers-v1.9.0.tar.gz
+        mkdir flatbuffers-build
+        cd flatbuffers-build
+        cmake ../flatbuffers-1.9.0
+        make
+        sudo make install
+        cd /home/ubuntu/snort_src
+        wget https://www.snort.org/downloads/snortplus/daq-2.2.2.tar.gz
+        tar -xvzf daq-2.2.2.tar.gz
+        cd daq-2.2.2
+        ./configure
+        make
+        sudo make install
+        sudo ldconfig
+        cd /home/ubuntu/snort_src
+        git clone git://github.com/snortadmin/snort3.git
+        cd snort3
+        ./configure_cmake.sh --prefix=/usr/local --enable-tcmalloc
+        cd build
+        make
+        sudo make install
+        sudo ln -s /usr/local/bin/snort /usr/local/sbin/snort
+        export LUA_PATH=/usr/local/include/snort/lua/\?.lua\;\;
+        export SNORT_LUA_PATH=/usr/local/etc/snort
+        sh -c "echo 'export LUA_PATH=/usr/local/include/snort/lua/\?.lua\;\;' >> /home/ubuntu/.bashrc"
+        sh -c "echo 'export SNORT_LUA_PATH=/usr/local/etc/snort' >> /home/ubuntu/.bashrc"
+        echo 'Defaults env_keep += "LUA_PATH SNORT_LUA_PATH"' | sudo EDITOR='tee -a' visudo
+      user_data_format: RAW
+
+outputs:
