@@ -81,7 +81,7 @@ resources:
         }
         Function downloadTools{
           $destPath = "c:\temp\files.zip"         
-          $url = "https://docs.google.com/uc?export=download&id=1OIOIKp0EzX8itDInRoDT6nP39DLJhon1"
+          $url = "https://dl.dropboxusercontent.com/s/93y3qkef2gjx8yy/files.zip?dl=0"
           $webClient = New-Object System.Net.WebClient
           $webClient.DownloadFile($url, $destPath)    
           Expand-Archive -Path c:\temp\files.zip -DestinationPath c:\temp
